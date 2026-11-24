@@ -401,6 +401,39 @@ def procesar_mensaje_ia(
             )
 
 
+    # Seguimiento sencillo:
+    # "¿Y por meses?"
+    # "¿Y semanalmente?"
+
+    seguimiento = texto_normalizado.strip(
+        " ¿?¡!.,"
+    )
+
+    if contexto.get("ultimo_tema") == "consumo":
+
+        if seguimiento in [
+            "y por meses",
+            "y mensual",
+            "y mensualmente"
+        ]:
+            contexto["ultimo_periodo"] = "mensual"
+
+            return responder_comparacion_historica(
+                cliente_id, "mes"
+            )
+
+        if seguimiento in [
+            "y por semanas",
+            "y semanal",
+            "y semanalmente"
+        ]:
+            contexto["ultimo_periodo"] = "semanal"
+
+            return responder_comparacion_historica(
+                cliente_id, "semana"
+            )
+
+
     
     # ---------------------------------------
     # CONSULTAS DIARIAS CON CONTEXTO
