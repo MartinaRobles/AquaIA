@@ -24,8 +24,9 @@ def inicializar_sesion():
 
     if "contexto_ia" not in st.session_state:
         st.session_state.contexto_ia = {
-            "ultimo_tema": None
-    }
+            "ultimo_tema": None,
+            "ultimo_periodo": None
+}
 
 
 def iniciar_sesion(cliente):
@@ -39,8 +40,9 @@ def iniciar_sesion(cliente):
     st.session_state.nombre_cliente = cliente["nombre"]
     st.session_state.solicitud_pendiente = {}
     st.session_state.contexto_ia = {
-        "ultimo_tema": None
-}
+        "ultimo_tema": None,
+        "ultimo_periodo": None
+    }
 
     st.session_state.mensajes = [
         {

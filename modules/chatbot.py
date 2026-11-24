@@ -1,8 +1,23 @@
 
+from modules.historical_comparison import (
+    responder_comparacion_historica
+)
+
+from modules.daily_consumption import (
+    comparar_ultimos_dias_completos
+)
+import re
+from datetime import date, timedelta
+
+from modules.daily_consumption import (
+    responder_dia,
+    comparar_dias
+)
+
 from modules.ai_router import interpretar_pregunta
 import unicodedata
 from modules.natural_responses import construir_respuesta_natural
-
+from modules.consumption_comparison import responder_comparacion
 from database.connection import get_connection
 from modules.billing import (
     obtener_facturas_cliente,
@@ -322,6 +337,188 @@ def procesar_mensaje_ia(
     if estado or pregunta == "cancelar":
         return procesar_mensaje(
             texto, cliente_id, estado
+        )
+    
+    # ---------------------------------------
+    # COMPARACIONES SEMANALES Y MENSUALES
+    # ---------------------------------------
+
+    texto_normalizado = normalizar(texto)
+
+    habla_de_consumo = (
+        any(p in texto_normalizado for p in [
+            "consum", "litros", "agua", "medidor"
+        ])
+        or contexto.get("ultimo_tema") == "consumo"
+    )
+
+    es_comparacion = any(
+        palabra in texto_normalizado
+        for palabra in [
+            "compar",
+            "diferencia",
+            "variacion",
+            "aument",
+            "disminu",
+            "cambio",
+            "cambiado"
+        ]
+    )
+
+    pide_mes = any(
+        palabra in texto_normalizado
+        for palabra in [
+            "mes", "mensual", "mensuales"
+        ]
+    )
+
+    pide_semana = any(
+        palabra in texto_normalizado
+        for palabra in [
+            "semana", "semanal", "semanales"
+        ]
+    )
+
+    # Preguntas como:
+    # "¿Cómo cambió mi consumo mensual?"
+    # "¿Y si lo comparamos por meses?"
+    if habla_de_consumo and es_comparacion:
+
+        if pide_mes:
+            contexto["ultimo_tema"] = "consumo"
+            contexto["ultimo_periodo"] = "mensual"
+
+            return responder_comparacion_historica(
+                cliente_id, "mes"
+            )
+
+        if pide_semana:
+            contexto["ultimo_tema"] = "consumo"
+            contexto["ultimo_periodo"] = "semanal"
+
+            return responder_comparacion_historica(
+                cliente_id, "semana"
+            )
+
+
+    
+    # ---------------------------------------
+    # CONSULTAS DIARIAS CON CONTEXTO
+    # ---------------------------------------
+
+    limpio = re.sub(
+        r"[¿?¡!.,;:]",
+        " ",
+        pregunta
+    )
+
+    limpio = " ".join(limpio.split())
+
+    hoy = date.today()
+    ayer = hoy - timedelta(days=1)
+    anteayer = hoy - timedelta(days=2)
+
+    tema_consumo = (
+        contexto.get("ultimo_tema") == "consumo"
+        or any(p in limpio for p in [
+            "consum", "agua", "litros", "medidor"
+        ])
+    )
+
+    pregunta_anteayer = bool(
+        re.search(r"\banteayer\b", limpio)
+    )
+
+    pregunta_ayer = bool(
+        re.search(r"\bayer\b", limpio)
+    )
+
+    if tema_consumo and pregunta_anteayer:
+
+        contexto["ultimo_tema"] = "consumo"
+        contexto["ultimo_periodo"] = "anteayer"
+
+        return responder_dia(cliente_id, anteayer)
+
+    if tema_consumo and pregunta_ayer:
+
+        contexto["ultimo_tema"] = "consumo"
+        contexto["ultimo_periodo"] = "ayer"
+
+        return responder_dia(cliente_id, ayer)
+
+    frases_variacion = [
+        "entonces aumento",
+        "aumento mi consumo",
+        "entonces disminuyo",
+        "subio mi consumo",
+        "bajo mi consumo",
+        "cual fue la diferencia",
+        "cuanto cambio",
+        "y la diferencia"
+    ]
+
+    consulta_variacion = any(
+        frase in limpio
+        for frase in frases_variacion
+    )
+
+    if (
+        tema_consumo
+        and consulta_variacion
+        and contexto.get("ultimo_periodo")
+        in ("ayer", "anteayer")
+    ):
+
+        return comparar_ultimos_dias_completos(
+            cliente_id
+        )
+
+
+    # ---------------------------------------
+    # COMPARACIONES CON CONTEXTO
+    # ---------------------------------------
+
+    frases_comparacion = [
+        "compara mi consumo",
+        "comparar mi consumo",
+        "comparacion de consumo",
+        "consumo comparado",
+        "comparar consumos",
+        "consumo de los dias anteriores",
+        "comparado con los dias anteriores",
+        "comparado con el periodo anterior"
+    ]
+
+    pregunta_comparativa = any(
+        frase in pregunta
+        for frase in frases_comparacion
+    )
+
+    # Preguntas breves que dependen del
+    # tema anterior de la conversación.
+    seguimientos = [
+        "y comparado con antes",
+        "y los dias anteriores",
+        "y comparado con los dias anteriores",
+        "y respecto al anterior",
+        "y antes"
+    ]
+
+    es_seguimiento = pregunta in seguimientos
+
+    if pregunta_comparativa:
+        contexto["ultimo_tema"] = "consumo"
+
+        return responder_comparacion(cliente_id)
+
+    if es_seguimiento:
+        if contexto.get("ultimo_tema") == "consumo":
+            return responder_comparacion(cliente_id)
+
+        return (
+            "¿Quieres comparar tu consumo de agua "
+            "o consultar otro tipo de información?"
         )
 
     # La IA identifica la intención.
