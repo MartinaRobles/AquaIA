@@ -1,4 +1,8 @@
 
+from modules.variation_analysis import responder_variacion
+from modules.conversation_followup import (
+    procesar_seguimiento
+)
 from modules.historical_comparison import (
     responder_comparacion_historica
 )
@@ -319,6 +323,29 @@ def procesar_mensaje(texto, cliente_id, estado):
     )
 
 
+def es_pregunta_explicativa(texto):
+    """
+    Reconoce preguntas sobre posibles causas
+    de una variación de consumo.
+    """
+
+    pregunta = normalizar(texto)
+
+    patrones = [
+        r"\bpor que\b",
+        r"\ba que se debe\b",
+        r"\bexplicame\b",
+        r"\bcual es la causa\b",
+        r"\bque provoco\b",
+        r"\bque pudo causar\b"
+    ]
+
+    return any(
+        re.search(patron, pregunta)
+        for patron in patrones
+    )
+
+
 def procesar_mensaje_ia(
     texto,
     cliente_id,
@@ -338,6 +365,191 @@ def procesar_mensaje_ia(
         return procesar_mensaje(
             texto, cliente_id, estado
         )
+    
+    # ---------------------------------------
+    # RESPUESTAS A PROPUESTAS ANTERIORES
+    # ---------------------------------------
+
+    respuesta_seguimiento = procesar_seguimiento(
+        texto=texto,
+        cliente_id=cliente_id,
+        contexto=contexto,
+        estado_solicitud=estado
+    )
+
+    if respuesta_seguimiento is not None:
+        return respuesta_seguimiento
+   
+    # ---------------------------------------
+    # PRIORIDAD: EXPLICAR VARIACIONES
+    # ---------------------------------------
+
+    texto_limpio = normalizar(texto)
+
+    pregunta_explicativa = es_pregunta_explicativa(
+        texto
+    )
+
+    menciona_consumo = any(
+        palabra in texto_limpio
+        for palabra in [
+            "consumo",
+            "consumi",
+            "litros",
+            "agua",
+            "medidor"
+        ]
+    )
+
+    tema_anterior = contexto.get("ultimo_tema")
+
+    if (
+        pregunta_explicativa
+        and (
+            menciona_consumo
+            or tema_anterior == "consumo"
+        )
+    ):
+
+        periodo = contexto.get("ultimo_periodo")
+
+        if (
+            "mes" in texto_limpio
+            or "mensual" in texto_limpio
+        ):
+            tipo = "mes"
+
+        elif (
+            "semana" in texto_limpio
+            or "semanal" in texto_limpio
+        ):
+            tipo = "semana"
+
+        elif periodo == "mensual":
+            tipo = "mes"
+
+        else:
+            tipo = "semana"
+
+        # Guardamos el tema de la conversación.
+        contexto["ultimo_tema"] = "consumo"
+        contexto["ultimo_periodo"] = (
+            "mensual" if tipo == "mes"
+            else "semanal"
+        )
+
+        # Consultamos el análisis real.
+        analisis = responder_variacion(
+            cliente_id,
+            tipo
+        )
+
+        # Guardamos las dos opciones disponibles.
+        contexto["oferta_pendiente"] = [
+            "revisar_nocturno",
+            "registrar_revision"
+        ]
+
+        # Respuesta final para mostrar en el chat.
+        respuesta = (
+            analisis
+            + "\n\n**¿Cómo te gustaría continuar?**"
+            + "\n\n**1.** Revisar mis consumos nocturnos."
+            + "\n\n**2.** Registrar una solicitud de revisión."
+            + "\n\nPuedes responder con el número "
+            "o decirme qué prefieres."
+        )
+
+        print(
+            "AquaIA DEBUG - Ruta explicativa:",
+            tipo
+        )
+
+        print(
+            "AquaIA DEBUG - Opciones:",
+            contexto["oferta_pendiente"]
+        )
+
+        return respuesta
+
+
+    # ---------------------------------------
+    # EXPLICAR VARIACIONES DE CONSUMO
+    # ---------------------------------------
+
+    texto_limpio = normalizar(texto)
+
+    pregunta_por_causa = any(
+        frase in texto_limpio
+        for frase in [
+            "por que aumento",
+            "por que subio",
+            "por que cambio",
+            "por que estoy consumiendo mas",
+            "explicame el aumento",
+            "a que se debe el aumento",
+            "por que ha aumentado"
+        ]
+    )
+
+    es_consumo = (
+        any(p in texto_limpio for p in [
+            "consumo", "agua", "litros", "medidor"
+        ])
+        or contexto.get("ultimo_tema") == "consumo"
+    )
+
+    if pregunta_por_causa and es_consumo:
+
+        contexto["ultimo_tema"] = "consumo"
+
+        # Usamos el período que recuerda AquaIA.
+        periodo = contexto.get("ultimo_periodo")
+
+        if (
+            "mes" in texto_limpio
+            or "mensual" in texto_limpio
+        ):
+            tipo = "mes"
+
+        elif (
+            "semana" in texto_limpio
+            or "semanal" in texto_limpio
+        ):
+            tipo = "semana"
+
+        elif periodo == "mensual":
+            tipo = "mes"
+
+        else:
+            tipo = "semana"
+
+        contexto["ultimo_periodo"] = (
+            "mensual" if tipo == "mes"
+            else "semanal"
+        )
+
+       
+        # Generar el análisis utilizando SQLite.
+        respuesta = responder_variacion(
+            cliente_id,
+            tipo
+        )
+
+        # Ofrecer dos alternativas.
+        contexto["oferta_pendiente"] = [
+            "revisar_nocturno",
+            "registrar_revision"
+        ]
+
+        return (
+            respuesta
+            + "\n\nPuedes elegir:\n\n"
+            "**1.** Revisar tus consumos nocturnos.\n\n"
+            "**2.** Registrar una solicitud de revisión.\n\n"
+            "¿Cuál prefieres?"
+        )
+
     
     # ---------------------------------------
     # COMPARACIONES SEMANALES Y MENSUALES
