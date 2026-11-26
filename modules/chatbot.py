@@ -1,4 +1,5 @@
 
+from modules.recommendations import recomendar_siguiente_paso
 from modules.variation_analysis import responder_variacion
 from modules.conversation_followup import (
     procesar_seguimiento
@@ -346,6 +347,25 @@ def es_pregunta_explicativa(texto):
     )
 
 
+def es_pregunta_recomendacion(texto):
+
+    pregunta = normalizar(texto)
+
+    expresiones = [
+        "que me recomiendas",
+        "que me aconsejas",
+        "que deberia hacer",
+        "que hago ahora",
+        "cual es tu recomendacion",
+        "que puedo hacer al respecto"
+    ]
+
+    return any(
+        expresion in pregunta
+        for expresion in expresiones
+    )
+
+
 def procesar_mensaje_ia(
     texto,
     cliente_id,
@@ -379,6 +399,31 @@ def procesar_mensaje_ia(
 
     if respuesta_seguimiento is not None:
         return respuesta_seguimiento
+
+    
+    # ---------------------------------------
+    # RECOMENDACIONES PERSONALIZADAS
+    # ---------------------------------------
+
+    if es_pregunta_recomendacion(texto):
+
+        tema = contexto.get("ultimo_tema")
+
+        recomendacion = recomendar_siguiente_paso(
+            cliente_id,
+            tema
+        )
+
+        # Guardamos las opciones para
+        # interpretar la siguiente respuesta.
+        opciones = recomendacion["opciones"]
+
+        contexto["oferta_pendiente"] = (
+            opciones if opciones else None
+        )
+
+        return recomendacion["mensaje"]
+
    
     # ---------------------------------------
     # PRIORIDAD: EXPLICAR VARIACIONES
@@ -458,16 +503,6 @@ def procesar_mensaje_ia(
             + "\n\n**2.** Registrar una solicitud de revisión."
             + "\n\nPuedes responder con el número "
             "o decirme qué prefieres."
-        )
-
-        print(
-            "AquaIA DEBUG - Ruta explicativa:",
-            tipo
-        )
-
-        print(
-            "AquaIA DEBUG - Opciones:",
-            contexto["oferta_pendiente"]
         )
 
         return respuesta
